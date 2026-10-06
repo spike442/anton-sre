@@ -1,0 +1,8 @@
+---
+registries:
+- type: standard
+  ref: v4.518.0
+
+packages:
+- name: aws/aws-cli@2.36.24
+- name: theseus-rs/postgresql-binaries@18.6.0

@@ -1,0 +1,43 @@
+agent:
+  name: anton
+
+release:
+  version: 1.0.0
+  branch_prefix: anton
+
+repository:
+  url: https://github.com/spike442/homelab.git
+  branch: main
+  path: /data/repo
+
+github:
+  commit_author_name: antonsre
+  commit_author_email: antonsre@users.noreply.github.com
+
+prometheus:
+  url: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090
+
+s3:
+  endpoint: http://rustfs-svc.storage.svc.cluster.local:9000
+  region: us-east-1
+  bucket: anton
+  prompt_prefix: anton/prompts
+  system_key: system.md
+  context_key: context.md
+  prompt_sha256: 40120fae8b99f20ffd039cb562cdf84f374579ab0155c527470f6aabdda73074
+
+limits:
+  max_tool_calls: 16
+  max_tool_output_bytes: 12000
+
+database:
+  host: postgres0-rw.database.svc.cluster.local
+  port: 5432
+  name: anton
+  user: anton
+
+api:
+  allowed_origins:
+  - http://127.0.0.1:8080
+  - http://localhost:8080
+  - https://anton.timcasa.me

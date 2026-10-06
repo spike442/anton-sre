@@ -1,0 +1,41 @@
+version: '3'
+
+tasks:
+  default:
+    cmds:
+      - task --list
+
+  setup:
+    desc: Create the project virtual environment and install dependencies
+    cmds:
+      - python3 -m venv .venv
+      - .venv/bin/python -m pip install -e ".[dev]"
+      - aqua install
+
+  prompts:upload:
+    desc: Upload Anton prompts to RustFS using 1Password credentials
+    cmds:
+    - bash ./infra/scripts/upload-prompts.sh
+
+  database:apply:
+    desc: Apply versioned SQL using the 1Password password and the private PostgreSQL route
+    cmds:
+    - bash ./infra/scripts/apply-sql.sh
+
+  server:local:
+    desc: Start Anton API locally on port 8000 for the frontend
+    cmds:
+    - .venv/bin/uvicorn server:app --app-dir src --host 127.0.0.1 --port 8000
+
+  front:
+    desc: Build and serve the local React frontend against the exposed Anton API
+    dir: frontend
+    cmds:
+    - npm install
+    - VITE_ANTON_API_URL=https://anton.timcasa.me VITE_ANTON_VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("../pyproject.toml", "rb"))["project"]["version"])') npm run build
+    - python3 -m http.server 8080 --bind 127.0.0.1 --directory dist
+
+  front:react:
+    desc: Alias for the local React frontend using the exposed API
+    cmds:
+    - task: front

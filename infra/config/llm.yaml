@@ -1,0 +1,52 @@
+llm:
+  base_url: https://api.openai.com/v1
+  model: gpt-5.6-luna
+  prompt_cache_key: anton-alert-mode-v1
+  shell:
+    allowed_binaries: [kubectl, flux, helm, git, jq, yq, grep, rg, sed, awk, cat, head, tail, sort, uniq, wc, date, pwd, ls, find, printf]
+    denied_patterns:
+    - '(^|\s)(?:rm|mv|cp|chmod|chown|kill|pkill|shutdown|reboot|curl|wget|nc|ssh|scp)\b'
+    - '\b(?:apply|create|delete|patch|edit|exec|scale|replace|annotate|label|taint|rollout\s+restart|reconcile|suspend|resume|install|upgrade|uninstall|rollback|commit|push|reset|clean|checkout|switch|restore|merge|cherry-pick)\b'
+    - '(?:;|&&|\|\||>|`|\$\(|\n)'
+  secret_material_patterns:
+  - '-----BEGIN [^-]*PRIVATE KEY-----'
+  - '\b(?:sk|ghp|github_pat|xox[baprs])-[A-Za-z0-9_-]{20,}\b'
+  tools:
+  - type: web_search
+  - type: function
+    name: query_prometheus
+    description: Query the configured in-cluster Prometheus server for alert, metric, or recovery evidence. Use only PromQL and never include secrets.
+    parameters:
+      type: object
+      properties:
+        query: {type: string}
+        start: {type: [string, 'null']}
+        end: {type: [string, 'null']}
+        step: {type: string}
+      required: [query, start, end, step]
+      additionalProperties: false
+    strict: true
+  - type: function
+    name: github_read
+    description: Read one safe repository file, recent commits, or a pull request. Never read secrets or private-key material.
+    parameters:
+      type: object
+      properties:
+        action: {type: string, enum: [file, commits, pull_request]}
+        path: {type: [string, 'null']}
+        number: {type: [integer, 'null']}
+        limit: {type: integer}
+      required: [action, path, number, limit]
+      additionalProperties: false
+    strict: true
+  - type: function
+    name: run_shell
+    description: Run one bounded read-only Linux diagnostic command or pipeline. Use kubectl, flux, helm, git, and Linux inspection commands only. Never attempt mutation, secrets, network access, or shell control operators.
+    parameters:
+      type: object
+      properties:
+        command: {type: string}
+        timeout_seconds: {type: integer}
+      required: [command, timeout_seconds]
+      additionalProperties: false
+    strict: true
