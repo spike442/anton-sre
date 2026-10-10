@@ -1,0 +1,17 @@
+repositories:
+  - owner: spike442
+    name: homelab
+    clone_url: https://github.com/spike442/homelab.git
+    clone_depth: 50
+    tools:
+      - name: kubectl
+        command: kubectl
+        description: Inspect the live Kubernetes cluster. Use read-only commands only.
+        parameters:
+          type: object
+          additionalProperties: false
+          properties:
+            args:
+              type: array
+              items: {type: string}
+          required: [args]

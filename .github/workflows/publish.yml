@@ -1,93 +1,169 @@
-name: Publish
-
-env:
-  DOCKER_BUILD_SUMMARY: false
+name: Hive Publish
 
 on:
   workflow_dispatch:
+    inputs:
+      module:
+        description: Module to publish
+        required: true
+        type: choice
+        options:
+          - anton
+          - sensei
+          - hive
+          - all
 
 permissions:
   contents: write
   packages: write
 
 concurrency:
-  group: anton-publish-${{ github.ref }}
+  group: hive-publish-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  ANTON_API_URL: https://anton.timcasa.me
+  SENSEI_API_URL: https://sensei.timcasa.me
+  HIVE_API_URL: https://hive.timcasa.me
+
 jobs:
-  publish:
-    if: github.ref == 'refs/heads/main'
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip setuptools wheel
+      - run: python -m pip install "ruff>=0.11,<1" pip-audit
+      - run: python -m pip install -e packages/hive-common
+      - run: python -m pip install -e "anton[dev]" -e "sensei[dev]" -e "hive[dev]"
+      - run: ruff format --check anton/src anton/tests sensei/src sensei/tests hive/src hive/tests packages/hive-common/src
+      - run: ruff check anton/src anton/tests sensei/src sensei/tests hive/src hive/tests packages/hive-common/src
+      - run: python -m compileall -q anton/src anton/tests sensei/src sensei/tests hive/src hive/tests packages/hive-common/src
+      - run: pytest -q anton/tests sensei/tests hive/tests
+      - run: pip-audit --local
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: hive/ui/package-lock.json
+      - run: npm ci
+        working-directory: hive/ui
+      - run: npm audit --audit-level=high
+        working-directory: hive/ui
+      - run: npm run build
+        working-directory: hive/ui
+
+  anton:
+    needs: quality
+    if: inputs.module == 'anton' || inputs.module == 'all'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
-      - name: Read project version
-        id: version
+      - id: version
         shell: bash
-        run: |
-          project_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
-          echo "version=$project_version" >> "$GITHUB_OUTPUT"
-
-      - name: Create version tag
-        uses: actions/github-script@v8
+        run: echo "version=$(python -c 'import tomllib; print(tomllib.load(open("anton/pyproject.toml", "rb"))["project"]["version"])')" >> "$GITHUB_OUTPUT"
+      - name: Create module tag
         env:
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
-          RELEASE_SHA: ${{ github.sha }}
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const tagName = process.env.RELEASE_VERSION;
-            const commitSha = process.env.RELEASE_SHA;
-            try {
-              const existing = await github.rest.git.getRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: `tags/${tagName}`,
-              });
-              if (existing.data.object.sha !== commitSha) {
-                core.setFailed(`${tagName} already exists on another commit`);
-              } else {
-                core.info(`${tagName} already points to this commit`);
-              }
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: `refs/tags/${tagName}`,
-                sha: commitSha,
-              });
-              core.info(`Created ${tagName}`);
-            }
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
+          TAG: anton-${{ steps.version.outputs.version }}
+        run: |
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
+          else
+            git tag "$TAG" "$GITHUB_SHA"
+            git push origin "$TAG"
+          fi
       - uses: docker/setup-buildx-action@v4
-
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/metadata-action@v6
-        id: metadata
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/anton
-          tags: |
-            type=raw,value=${{ steps.version.outputs.version }}
-
       - uses: docker/build-push-action@v7
         with:
           context: .
+          file: ./anton/Dockerfile
           push: true
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
+          tags: ghcr.io/${{ github.repository_owner }}/anton:${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  sensei:
+    needs: quality
+    if: inputs.module == 'sensei' || inputs.module == 'all'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: version
+        shell: bash
+        run: echo "version=$(python -c 'import tomllib; print(tomllib.load(open("sensei/pyproject.toml", "rb"))["project"]["version"])')" >> "$GITHUB_OUTPUT"
+      - name: Create module tag
+        env:
+          TAG: sensei-${{ steps.version.outputs.version }}
+        run: |
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
+          else
+            git tag "$TAG" "$GITHUB_SHA"
+            git push origin "$TAG"
+          fi
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./sensei/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/hive-sensei:${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  hive:
+    needs: quality
+    if: inputs.module == 'hive' || inputs.module == 'all'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: version
+        shell: bash
+        run: echo "version=$(python -c 'import tomllib; print(tomllib.load(open("hive/pyproject.toml", "rb"))["project"]["version"])')" >> "$GITHUB_OUTPUT"
+      - name: Create module tag
+        env:
+          TAG: hive-${{ steps.version.outputs.version }}
+        run: |
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
+          else
+            git tag "$TAG" "$GITHUB_SHA"
+            git push origin "$TAG"
+          fi
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./hive/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/hive:${{ steps.version.outputs.version }}
           build-args: |
-            ANTON_VERSION=${{ steps.version.outputs.version }}
+            ANTON_API_URL=${{ env.ANTON_API_URL }}
+            SENSEI_API_URL=${{ env.SENSEI_API_URL }}
+            HIVE_API_URL=${{ env.HIVE_API_URL }}
+            HIVE_VERSION=${{ steps.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

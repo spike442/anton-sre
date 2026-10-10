@@ -1,0 +1,17 @@
+version: '3'
+
+tasks:
+  setup:
+    desc: Create the Sensei virtual environment and install dependencies
+    cmds:
+      - python3 -m venv --clear .venv
+      - .venv/bin/python -m pip install -e ../packages/hive-common
+      - .venv/bin/python -m pip install -e ".[dev]"
+  database:apply:
+    desc: Apply the versioned Sensei PostgreSQL schema
+    cmds:
+      - bash ./infra/scripts/apply-sql.sh
+  prompts:upload:
+    desc: Upload Sensei prompts to S3 using 1Password credentials
+    cmds:
+      - bash ./infra/scripts/upload-prompts.sh

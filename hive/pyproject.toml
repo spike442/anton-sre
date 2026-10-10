@@ -1,0 +1,38 @@
+[project]
+name = "hive"
+version = "1.0.0"
+description = "Agent management backend for Hive"
+requires-python = ">=3.12"
+dependencies = [
+  "hive-common==1.0.0",
+  "fastapi>=0.115,<1",
+  "httpx>=0.28,<1",
+  "psycopg[binary]>=3.2,<4",
+  "pydantic>=2.10,<3",
+  "pydantic-settings[yaml]>=2.7,<3",
+  "PyYAML>=6.0,<7",
+  "SQLAlchemy>=2.0,<3",
+  "uvicorn[standard]>=0.34,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9,<10",
+  "ruff>=0.11,<1",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = [
+  "api",
+  "application",
+  "domain",
+  "health",
+  "infrastructure",
+  "server",
+  "sql",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"

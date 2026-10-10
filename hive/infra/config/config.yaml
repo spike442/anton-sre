@@ -1,0 +1,23 @@
+logging:
+  level: INFO
+
+health:
+  timeout_seconds: 3
+
+agents:
+  - name: anton
+    base_url: http://anton.agents.svc.cluster.local:8080
+  - name: sensei
+    base_url: http://sensei.agents.svc.cluster.local:8090
+
+database:
+  host: postgres0-rw.database.svc.cluster.local
+  port: 5432
+  name: hive
+  user: hive
+
+api:
+  allowed_origins:
+    - http://127.0.0.1:8080
+    - http://localhost:8080
+    - https://hive.timcasa.me

@@ -1,0 +1,14 @@
+version: '3'
+
+tasks:
+  setup:
+    desc: Create the Hive virtual environment and install dependencies
+    cmds:
+      - python3 -m venv --clear .venv
+      - .venv/bin/python -m pip install -e ../packages/hive-common
+      - .venv/bin/python -m pip install -e ".[dev]"
+      - npm --prefix ui ci
+  database:apply:
+    desc: Apply the Hive PostgreSQL schema
+    cmds:
+      - bash ./infra/scripts/apply-sql.sh

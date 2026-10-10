@@ -1,0 +1,42 @@
+app:
+  name: sensei
+  version: 1.0.0
+
+logging:
+  level: INFO
+
+review:
+  merge_enabled: true
+  merge_method: squash
+  allowed_risk_levels: [low, medium]
+  allowed_confidence_levels: [low, medium]
+  command_timeout_seconds: 900
+  max_diff_bytes: 200000
+  max_tool_calls: 8
+  max_tool_output_bytes: 12000
+  workspace_root: /tmp/sensei
+  poll_interval_seconds: 3600
+
+github:
+  api_url: https://api.github.com
+
+s3:
+  bucket: hive
+  prefix: sensei
+  root_context_object_name: context.md
+  object_name: context.md
+  action_prompt_prefix: actions
+  endpoint_url: http://rustfs-svc.storage.svc.cluster.local:9000
+  region: us-east-1
+
+database:
+  host: postgres0-rw.database.svc.cluster.local
+  port: 5432
+  name: hive
+  user: sensei
+
+api:
+  allowed_origins:
+  - http://127.0.0.1:8080
+  - http://localhost:8080
+  - https://hive.timcasa.me

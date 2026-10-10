@@ -1,0 +1,19 @@
+version: '3'
+
+tasks:
+  setup:
+    desc: Create the project virtual environment and install dependencies
+    cmds:
+      - python3 -m venv --clear .venv
+      - .venv/bin/python -m pip install -e ../packages/hive-common
+      - .venv/bin/python -m pip install -e ".[dev]"
+
+  prompts:upload:
+    desc: Upload Anton prompts to S3 using 1Password credentials
+    cmds:
+      - bash ./infra/scripts/upload-prompts.sh
+
+  database:apply:
+    desc: Apply versioned SQL using the 1Password password and the private PostgreSQL route
+    cmds:
+      - bash ./infra/scripts/apply-sql.sh

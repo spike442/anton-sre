@@ -1,9 +1,7 @@
-name: CI
-
-env:
-  DOCKER_BUILD_SUMMARY: false
+name: Hive CI
 
 on:
+  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
@@ -12,29 +10,222 @@ permissions:
   contents: read
 
 concurrency:
-  group: anton-ci-${{ github.workflow }}-${{ github.ref }}
+  group: hive-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  ci:
+  quality:
     runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip setuptools wheel
+      - run: python -m pip install "ruff>=0.11,<1" pip-audit
+      - run: python -m pip install -e packages/hive-common
+      - run: python -m pip install -e "anton[dev]" -e "sensei[dev]" -e "hive[dev]"
+      - id: format
+        run: ruff format --check anton/src anton/tests sensei/src sensei/tests hive/src hive/tests packages/hive-common/src
+      - id: lint
+        run: ruff check anton/src anton/tests sensei/src sensei/tests hive/src hive/tests packages/hive-common/src
+      - id: compile
+        run: python -m compileall -q anton/src anton/tests sensei/src sensei/tests hive/src hive/tests packages/hive-common/src
+      - id: anton-tests
+        run: pytest -q
+        working-directory: anton
+        env:
+          PYTHONPATH: ${{ github.workspace }}/anton/src
+      - id: sensei-tests
+        run: pytest -q
+        working-directory: sensei
+        env:
+          PYTHONPATH: ${{ github.workspace }}/sensei/src
+      - id: hive-tests
+        run: pytest -q
+        working-directory: hive
+        env:
+          PYTHONPATH: ${{ github.workspace }}/hive/src
+      - id: pip-audit
+        name: Audit third-party dependencies
+        continue-on-error: true
+        shell: bash
+        run: |
+          python - <<'PY' > /tmp/hive-requirements.txt
+          import re
+          import subprocess
+          import sys
+
+          local_packages = {"anton", "anton-sre-agent", "hive", "hive-common", "sensei"}
+          for line in subprocess.check_output(
+              [sys.executable, "-m", "pip", "freeze"], text=True
+          ).splitlines():
+              if line.startswith("-e "):
+                  continue
+              name = re.split(r"[<=>!~]", line, maxsplit=1)[0].lower().replace("_", "-")
+              if name not in local_packages:
+                  print(line)
+          PY
+          pip-audit -r /tmp/hive-requirements.txt
+      - id: npm-install
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: hive/ui/package-lock.json
+      - id: npm-ci
+        run: npm ci
+        working-directory: hive/ui
+      - id: npm-audit
+        name: Audit UI dependencies
+        continue-on-error: true
+        run: npm audit --audit-level=high
+        working-directory: hive/ui
+      - id: npm-build
+        run: npm run build
+        working-directory: hive/ui
+      - name: Quality dashboard
+        if: always()
+        env:
+          FORMAT: ${{ steps.format.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          COMPILE: ${{ steps.compile.outcome }}
+          ANTON_TESTS: ${{ steps.anton-tests.outcome }}
+          SENSEI_TESTS: ${{ steps.sensei-tests.outcome }}
+          HIVE_TESTS: ${{ steps.hive-tests.outcome }}
+          PIP_AUDIT: ${{ steps.pip-audit.outcome }}
+          NPM_CI: ${{ steps.npm-ci.outcome }}
+          NPM_AUDIT: ${{ steps.npm-audit.outcome }}
+          NPM_BUILD: ${{ steps.npm-build.outcome }}
+        run: |
+          {
+            echo "## Quality dashboard"
+            echo
+            echo "| Check | Result |"
+            echo "| --- | --- |"
+            printf '| Ruff format | `%s` |\n' "$FORMAT"
+            printf '| Ruff lint | `%s` |\n' "$LINT"
+            printf '| Python compile | `%s` |\n' "$COMPILE"
+            printf '| Anton tests | `%s` |\n' "$ANTON_TESTS"
+            printf '| Sensei tests | `%s` |\n' "$SENSEI_TESTS"
+            printf '| Hive tests | `%s` |\n' "$HIVE_TESTS"
+            printf '| pip-audit | `%s` |\n' "$PIP_AUDIT"
+            printf '| npm install | `%s` |\n' "$NPM_CI"
+            printf '| npm audit | `%s` |\n' "$NPM_AUDIT"
+            printf '| UI build | `%s` |\n' "$NPM_BUILD"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      anton: ${{ steps.changed.outputs.anton }}
+      sensei: ${{ steps.changed.outputs.sensei }}
+      hive: ${{ steps.changed.outputs.hive }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - id: changed
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE_SHA"
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            base="$BEFORE_SHA"
+          else
+            base=""
+          fi
+
+          if [[ -n "$base" && ! "$base" =~ ^0+$ ]] && git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            changed="$(git diff --name-only "$base" "$HEAD_SHA")"
+          else
+            parent="$(git rev-parse "$HEAD_SHA^" 2>/dev/null || true)"
+            if [[ -n "$parent" ]]; then
+              changed="$(git diff --name-only "$parent" "$HEAD_SHA")"
+            else
+              changed="$(git diff-tree --no-commit-id --name-only -r "$HEAD_SHA")"
+            fi
+          fi
+          for module in anton sensei hive; do
+            if grep -qE "^${module}/" <<< "$changed" || \
+               grep -qE "^packages/hive-common/" <<< "$changed"; then
+              echo "${module}=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "${module}=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
+  anton:
+    needs: changes
+    if: needs.changes.outputs.anton == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: anton
+    steps:
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: anton/pyproject.toml
       - run: python -m pip install --upgrade pip
+      - run: pip install ../packages/hive-common
       - run: pip install -e ".[dev]"
       - run: python -m compileall -q src tests
       - run: pytest -q
-      - uses: actions/setup-node@v4
+      - run: python -m build
+
+  sensei:
+    needs: changes
+    if: needs.changes.outputs.sensei == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: sensei
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: sensei/pyproject.toml
+      - run: python -m pip install --upgrade pip
+      - run: pip install ../packages/hive-common
+      - run: pip install -e ".[dev]"
+      - run: python -m compileall -q src tests
+      - run: pytest -q
+
+  hive:
+    needs: changes
+    if: needs.changes.outputs.hive == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: hive
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: hive/pyproject.toml
+      - run: python -m pip install --upgrade pip
+      - run: pip install ../packages/hive-common
+      - run: pip install -e ".[dev]"
+      - run: python -m compileall -q src tests
+      - run: pytest -q
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm ci --prefix frontend
-      - run: npm run build --prefix frontend
-      - run: python -m build
+          cache-dependency-path: hive/ui/package-lock.json
+      - run: npm ci
+        working-directory: hive/ui
+      - run: npm run build
+        working-directory: hive/ui

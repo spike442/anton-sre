@@ -1,10 +1,8 @@
 .git
 .venv
-*.pem
-*.key
-*.env
-kubeconfig
-__pycache__
-.pytest_cache
-frontend/node_modules
-frontend/dist
+**/.venv
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/.idea
